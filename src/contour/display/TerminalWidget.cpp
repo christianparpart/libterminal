@@ -1199,4 +1199,45 @@ void TerminalWidget::discardImage(terminal::Image const& _image)
 }
 // }}}
 
+optional<terminal::Image> TerminalWidget::decodeImage(gsl::span<uint8_t> _imageData)
+{
+    QImage image;
+    image.loadFromData(static_cast<uchar const*>(_imageData.data()), static_cast<int>(_imageData.size()));
+
+    qDebug() << "decodeImage()" << image.format();
+    if (image.hasAlphaChannel() && image.format() != QImage::Format_ARGB32)
+        image = image.convertToFormat(QImage::Format_ARGB32);
+    else
+        image = image.convertToFormat(QImage::Format_RGB888);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+    qDebug() << "|> decodeImage()" << image.format() << image.sizeInBytes() << image.size();
+#else
+    qDebug() << "|> decodeImage()" << image.format() << image.byteCount() << image.size();
+#endif
+
+    static auto nextImageId = terminal::ImageId(0);
+
+    terminal::Image::Data pixels;
+    auto* p = &pixels[0];
+    pixels.resize(static_cast<size_t>(image.bytesPerLine() * image.height()));
+    for (int i = 0; i < image.height(); ++i)
+    {
+        memcpy(p, image.constScanLine(i), static_cast<size_t>(image.bytesPerLine()));
+        p += image.bytesPerLine();
+    }
+
+    terminal::ImageFormat format = terminal::ImageFormat::RGBA;
+    switch (image.format())
+    {
+        case QImage::Format_RGBA8888: format = terminal::ImageFormat::RGBA; break;
+        case QImage::Format_RGB888: format = terminal::ImageFormat::RGB; break;
+        default: return nullopt;
+    }
+    ImageSize size { Width::cast_from(image.width()), Height::cast_from(image.height()) };
+    auto onRemove = terminal::Image::OnImageRemove {};
+
+    auto img = terminal::Image(nextImageId++, format, std::move(pixels), size, onRemove);
+    return { std::move(img) };
+}
+
 } // namespace contour::display

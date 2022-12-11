@@ -166,6 +166,8 @@ class TerminalWidget: public QOpenGLWidget, private QOpenGLExtraFunctions
     void logDisplayTopInfo();
     void logDisplayInfo();
 
+    std::optional<terminal::Image> decodeImage(gsl::span<uint8_t> _imageData);
+
   public Q_SLOTS:
     void onFrameSwapped();
     void onScrollBarValueChanged(int _value);

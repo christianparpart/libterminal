@@ -41,6 +41,7 @@ enum class ImageFormat
 {
     RGB,
     RGBA,
+    PNG,
 };
 
 // clang-format off
@@ -259,7 +260,7 @@ class ImagePool
 
     // named image access
     //
-    void link(std::string const& _name, std::shared_ptr<Image const> _imageRef);
+    void link(std::string _name, std::shared_ptr<Image const> _imageRef);
     [[nodiscard]] std::shared_ptr<Image const> findImageByName(std::string const& _name) const noexcept;
     void unlink(std::string const& _name);
 
@@ -300,6 +301,7 @@ struct formatter<terminal::ImageFormat>
         {
             case terminal::ImageFormat::RGB: return fmt::format_to(ctx.out(), "RGB");
             case terminal::ImageFormat::RGBA: return fmt::format_to(ctx.out(), "RGBA");
+            case terminal::ImageFormat::PNG: return fmt::format_to(ctx.out(), "PNG");
         }
         return fmt::format_to(ctx.out(), "{}", unsigned(value));
     }

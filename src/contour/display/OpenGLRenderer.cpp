@@ -141,6 +141,7 @@ namespace
         {
             case terminal::ImageFormat::RGB: return GL_RGB;
             case terminal::ImageFormat::RGBA: return GL_RGBA;
+            case terminal::ImageFormat::PNG: Require(false);
         }
         Guarantee(false);
         crispy::unreachable();

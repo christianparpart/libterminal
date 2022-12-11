@@ -13,6 +13,7 @@
  */
 #include <vtbackend/ControlCode.h>
 #include <vtbackend/InputGenerator.h>
+#include <vtbackend/MessageParser.h>
 #include <vtbackend/Screen.h>
 #include <vtbackend/Terminal.h>
 #include <vtbackend/VTType.h>
@@ -240,7 +241,91 @@ namespace // {{{ helper
     //             return nullopt;
     //     }
     // }
+
+    int toNumber(string const* _value, int _default)
+    {
+        if (!_value)
+            return _default;
+
+        int result = 0;
+        for (char const ch: *_value)
+        {
+            if (ch >= '0' && ch <= '9')
+                result = result * 10 + (ch - '0');
+            else
+                return _default;
+        }
+
+        return result;
+    }
+
+    optional<ImageAlignment> toImageAlignmentPolicy(string const* _value, ImageAlignment _default)
+    {
+        if (!_value)
+            return _default;
+
+        if (_value->size() != 1)
+            return nullopt;
+
+        switch (_value->at(0))
+        {
+            case '1': return ImageAlignment::TopStart;
+            case '2': return ImageAlignment::TopCenter;
+            case '3': return ImageAlignment::TopEnd;
+            case '4': return ImageAlignment::MiddleStart;
+            case '5': return ImageAlignment::MiddleCenter;
+            case '6': return ImageAlignment::MiddleEnd;
+            case '7': return ImageAlignment::BottomStart;
+            case '8': return ImageAlignment::BottomCenter;
+            case '9': return ImageAlignment::BottomEnd;
+        }
+
+        return nullopt;
+    }
+
+    optional<ImageResize> toImageResizePolicy(string const* _value, ImageResize _default)
+    {
+        if (!_value)
+            return _default;
+
+        if (_value->size() != 1)
+            return nullopt;
+
+        switch (_value->at(0))
+        {
+            case '0': return ImageResize::NoResize;
+            case '1': return ImageResize::ResizeToFit;
+            case '2': return ImageResize::ResizeToFill;
+            case '3': return ImageResize::StretchToFill;
+        }
+
+        return nullopt; // TODO
+    }
+
+    optional<ImageFormat> toImageFormat(string const* _value)
+    {
+        auto constexpr DefaultFormat = ImageFormat::RGB;
+
+        if (_value)
+        {
+            if (_value->size() == 1)
+            {
+                switch (_value->at(0))
+                {
+                    case '1': return ImageFormat::RGB;
+                    case '2': return ImageFormat::RGBA;
+                    case '3': return ImageFormat::PNG;
+                    default: return nullopt;
+                }
+            }
+            else
+                return nullopt;
+        }
+        else
+            return DefaultFormat;
+    }
 } // namespace
+
 // }}}
 
 template <typename Cell>
@@ -1782,7 +1867,7 @@ template <typename Cell>
 CRISPY_REQUIRES(CellConcept<Cell>)
 shared_ptr<Image const> Screen<Cell>::uploadImage(ImageFormat _format,
                                                   ImageSize _imageSize,
-                                                  Image::Data&& _pixmap)
+                                                  Image::Data _pixmap)
 {
     return _state.imagePool.create(_format, _imageSize, std::move(_pixmap));
 }
@@ -1798,7 +1883,8 @@ void Screen<Cell>::renderImage(shared_ptr<Image const> _image,
                                ImageResize _resizePolicy,
                                bool _autoScroll)
 {
-    // TODO: make use of _imageOffset
+    // TODO: make use of _imageOffset and _imageSize
+    // TODO: OPTIMIZATION: if the exact same image has been rasterized already, reuse that.
     (void) _imageOffset;
 
     auto const linesAvailable = _state.pageSize.lines - _topLeft.line.as<LineCount>();
@@ -3629,6 +3715,12 @@ ApplyResult Screen<Cell>::apply(FunctionDefinition const& function, Sequence con
         case STP: _state.sequencer.hookParser(hookSTP(seq)); break;
         case DECRQSS: _state.sequencer.hookParser(hookDECRQSS(seq)); break;
         case XTGETTCAP: _state.sequencer.hookParser(hookXTGETTCAP(seq)); break;
+#if defined(GOOD_IMAGE_PROTOCOL)
+        case GIUPLOAD: _state.sequencer.hookParser(hookGoodImageUpload(seq)); break;
+        case GIRENDER: _state.sequencer.hookParser(hookGoodImageRender(seq)); break;
+        case GIDELETE: _state.sequencer.hookParser(hookGoodImageRelease(seq)); break;
+        case GIONESHOT: _state.sequencer.hookParser(hookGoodImageOneshot(seq)); break;
+#endif
 
         default: return ApplyResult::Unsupported;
     }
@@ -3801,6 +3893,169 @@ optional<CellLocation> Screen<Cell>::searchReverse(std::u32string_view searchTex
         startPosition.column = boxed_cast<ColumnOffset>(pageSize().columns) - 1;
     }
     return nullopt;
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+unique_ptr<ParserExtension> Screen<Cell>::hookGoodImageUpload(Sequence const&)
+{
+    return make_unique<MessageParser>([this](Message&& _message) {
+        auto const name = _message.header("n");
+        auto const imageFormat = toImageFormat(_message.header("f"));
+        auto const width = Width::cast_from(toNumber(_message.header("w"), 0));
+        auto const height = Height::cast_from(toNumber(_message.header("h"), 0));
+        auto const size = ImageSize { width, height };
+
+        bool const validImage = imageFormat.has_value()
+                                && ((*imageFormat == ImageFormat::PNG && !*size.width && !*size.height)
+                                    || (*imageFormat != ImageFormat::PNG && *size.width && *size.height));
+
+        if (name && validImage)
+        {
+            uploadImage(*name, imageFormat.value(), size, _message.takeBody());
+        }
+    });
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+unique_ptr<ParserExtension> Screen<Cell>::hookGoodImageRender(Sequence const&)
+{
+    return make_unique<MessageParser>([this](Message&& _message) {
+        auto const name = _message.header("n");
+        auto const x = PixelCoordinate::X { toNumber(_message.header("x"), 0) }; // XXX grid x offset
+        auto const y = PixelCoordinate::Y { toNumber(_message.header("y"), 0) }; // XXX grid y offset
+        auto const screenRows = LineCount::cast_from(toNumber(_message.header("r"), 0));
+        auto const screenCols = ColumnCount::cast_from(toNumber(_message.header("c"), 0));
+        auto const imageWidth = Width::cast_from(toNumber(_message.header("w"), 0));   // XXX in grid coords
+        auto const imageHeight = Height::cast_from(toNumber(_message.header("h"), 0)); // XXX in grid coords
+        auto const alignmentPolicy =
+            toImageAlignmentPolicy(_message.header("a"), ImageAlignment::MiddleCenter);
+        auto const resizePolicy = toImageResizePolicy(_message.header("z"), ImageResize::NoResize);
+        auto const requestStatus = _message.header("s") != nullptr;
+        auto const autoScroll = _message.header("l") != nullptr;
+
+        auto const imageOffset = PixelCoordinate { x, y };
+        auto const imageSize = ImageSize { imageWidth, imageHeight };
+        auto const screenExtent = GridSize { screenRows, screenCols };
+
+        renderImageByName(name ? *name : "",
+                          screenExtent,
+                          imageOffset,
+                          imageSize,
+                          *alignmentPolicy,
+                          *resizePolicy,
+                          autoScroll,
+                          requestStatus);
+    });
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+unique_ptr<ParserExtension> Screen<Cell>::hookGoodImageRelease(Sequence const&)
+{
+    return make_unique<MessageParser>([this](Message&& _message) {
+        if (auto const name = _message.header("n"); name)
+            releaseImage(*name);
+    });
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+unique_ptr<ParserExtension> Screen<Cell>::hookGoodImageOneshot(Sequence const&)
+{
+    return make_unique<MessageParser>([this](Message&& _message) {
+        auto const screenRows = LineCount::cast_from(toNumber(_message.header("r"), 0));
+        auto const screenCols = ColumnCount::cast_from(toNumber(_message.header("c"), 0));
+        auto const autoScroll = _message.header("l") != nullptr;
+        auto const alignmentPolicy =
+            toImageAlignmentPolicy(_message.header("a"), ImageAlignment::MiddleCenter);
+        auto const resizePolicy = toImageResizePolicy(_message.header("z"), ImageResize::NoResize);
+        auto const imageWidth = Width::cast_from(toNumber(_message.header("w"), 0));
+        auto const imageHeight = Height::cast_from(toNumber(_message.header("h"), 0));
+        auto const imageFormat = toImageFormat(_message.header("f"));
+
+        auto const imageSize = ImageSize { imageWidth, imageHeight };
+        auto const screenExtent = GridSize { screenRows, screenCols };
+
+        renderImage(*imageFormat,
+                    imageSize,
+                    _message.takeBody(),
+                    screenExtent,
+                    *alignmentPolicy,
+                    *resizePolicy,
+                    autoScroll);
+    });
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+void Screen<Cell>::uploadImage(string _name, ImageFormat _format, ImageSize _imageSize, Image::Data _pixmap)
+{
+    _state.imagePool.link(std::move(_name), uploadImage(_format, _imageSize, std::move(_pixmap)));
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+void Screen<Cell>::renderImageByName(std::string const& _name,
+                                     GridSize _gridSize,
+                                     PixelCoordinate _imageOffset,
+                                     ImageSize _imageSize,
+                                     ImageAlignment _alignmentPolicy,
+                                     ImageResize _resizePolicy,
+                                     bool _autoScroll,
+                                     bool _requestStatus)
+{
+    auto const imageRef = _state.imagePool.findImageByName(_name);
+    auto const topLeft = _state.cursor.position;
+
+    if (imageRef)
+        renderImage(imageRef,
+                    topLeft,
+                    _gridSize,
+                    _imageOffset,
+                    _imageSize,
+                    _alignmentPolicy,
+                    _resizePolicy,
+                    _autoScroll);
+
+    if (_requestStatus)
+        _terminal.reply("\033P{}r\033\\", imageRef != nullptr ? 1 : 0);
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+void Screen<Cell>::renderImage(ImageFormat _format,
+                               ImageSize _imageSize,
+                               Image::Data _pixmap,
+                               GridSize _gridSize,
+                               ImageAlignment _alignmentPolicy,
+                               ImageResize _resizePolicy,
+                               bool _autoScroll)
+{
+    auto constexpr imageOffset = PixelCoordinate {};
+    auto constexpr imageSize = ImageSize {};
+
+    auto const topLeft = _state.cursor.position;
+    auto const imageRef = uploadImage(_format, _imageSize, std::move(_pixmap));
+
+    // clang-format off
+    renderImage(imageRef,
+                topLeft,
+                _gridSize,
+                imageOffset,
+                imageSize,
+                _alignmentPolicy,
+                _resizePolicy,
+                _autoScroll);
+    // clang-format on
+}
+
+template <typename Cell>
+CRISPY_REQUIRES(CellConcept<Cell>)
+void Screen<Cell>::releaseImage(std::string const& _name)
+{
+    _state.imagePool.unlink(_name);
 }
 
 } // namespace terminal

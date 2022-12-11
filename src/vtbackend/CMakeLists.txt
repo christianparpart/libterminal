@@ -32,6 +32,7 @@ set(terminal_HEADERS
     InputGenerator.h
     Line.h
     MatchModes.h
+    MessageParser.h
     MockTerm.h
     RenderBuffer.h
     RenderBufferBuilder.h
@@ -62,6 +63,7 @@ set(terminal_SOURCES
     InputGenerator.cpp
     Line.cpp
     MatchModes.cpp
+    MessageParser.cpp
     MockTerm.cpp
     RenderBuffer.cpp
     RenderBufferBuilder.cpp
@@ -117,6 +119,7 @@ if(LIBTERMINAL_TESTING)
         Functions_test.cpp
         Grid_test.cpp
         Line_test.cpp
+        MessageParser_test.cpp
         Screen_test.cpp
         Sequence_test.cpp
         Terminal_test.cpp

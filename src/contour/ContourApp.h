@@ -37,6 +37,7 @@ class ContourApp: public crispy::App
     int configAction();
     int integrationAction();
     int infoVT();
+    int imageAction();
 };
 
 } // namespace contour

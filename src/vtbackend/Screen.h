@@ -247,9 +247,9 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     [[nodiscard]] ImageSize maxImageSize() const noexcept { return _state.maxImageSize; }
     [[nodiscard]] ImageSize maxImageSizeLimit() const noexcept { return _state.maxImageSizeLimit; }
 
-    std::shared_ptr<Image const> uploadImage(ImageFormat _format,
-                                             ImageSize _imageSize,
-                                             Image::Data&& _pixmap);
+    std::shared_ptr<Image const> uploadImage(ImageFormat _format, ImageSize _imageSize, Image::Data _pixmap);
+
+    void uploadImage(std::string _name, ImageFormat _format, ImageSize _imageSize, Image::Data _pixmap);
 
     /**
      * Renders an image onto the screen.
@@ -272,6 +272,25 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
                      ImageAlignment _alignmentPolicy,
                      ImageResize _resizePolicy,
                      bool _autoScroll);
+
+    void renderImageByName(std::string const& _name,
+                           GridSize _gridSize,
+                           PixelCoordinate _imageOffset,
+                           ImageSize _imageSize,
+                           ImageAlignment _alignmentPolicy,
+                           ImageResize _resizePolicy,
+                           bool _autoScroll,
+                           bool _requestStatus);
+
+    void renderImage(ImageFormat _format,
+                     ImageSize _imageSize,
+                     Image::Data _pixmap,
+                     GridSize _gridSize,
+                     ImageAlignment _alignmentPolicy,
+                     ImageResize _resizePolicy,
+                     bool _autoScroll);
+
+    void releaseImage(std::string const& _name);
 
     void inspect(std::string const& _message, std::ostream& _os) const override;
 
@@ -640,6 +659,11 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     [[nodiscard]] std::unique_ptr<ParserExtension> hookSixel(Sequence const& seq);
     [[nodiscard]] std::unique_ptr<ParserExtension> hookDECRQSS(Sequence const& seq);
     [[nodiscard]] std::unique_ptr<ParserExtension> hookXTGETTCAP(Sequence const& seq);
+
+    [[nodiscard]] std::unique_ptr<ParserExtension> hookGoodImageUpload(Sequence const& _ctx);
+    [[nodiscard]] std::unique_ptr<ParserExtension> hookGoodImageRender(Sequence const& _ctx);
+    [[nodiscard]] std::unique_ptr<ParserExtension> hookGoodImageRelease(Sequence const& _ctx);
+    [[nodiscard]] std::unique_ptr<ParserExtension> hookGoodImageOneshot(Sequence const& _ctx);
 
     Terminal& _terminal;
     TerminalState& _state;

@@ -466,6 +466,15 @@ constexpr inline auto RCOLORHIGHLIGHTBG = detail::OSC(117, VTExtension::XTerm,"R
 constexpr inline auto NOTIFY        = detail::OSC(777, VTExtension::XTerm,"NOTIFY", "Send Notification.");
 constexpr inline auto DUMPSTATE     = detail::OSC(888, VTExtension::Contour, "DUMPSTATE", "Dumps internal state to debug stream.");
 
+// DCS: Good Image Protocol
+#if defined(GOOD_IMAGE_PROTOCOL)
+// TODO: use OSC instead of DCS?
+constexpr inline auto GIUPLOAD    = detail::DCS(std::nullopt, 0, 0, std::nullopt, 'u', VTType::VT525, "GIUPLOAD", "Uploads an image.");
+constexpr inline auto GIRENDER    = detail::DCS(std::nullopt, 0, 0, std::nullopt, 'r', VTType::VT525, "GIRENDER", "Renders an image.");
+constexpr inline auto GIDELETE    = detail::DCS(std::nullopt, 0, 0, std::nullopt, 'd', VTType::VT525, "GIDELETE", "Deletes an image.");
+constexpr inline auto GIONESHOT   = detail::DCS(std::nullopt, 0, 0, std::nullopt, 's', VTType::VT525, "GIONESHOT", "Uploads and renders an unnamed image.");
+#endif
+
 constexpr inline auto CaptureBufferCode = 314;
 
 // clang-format on
@@ -473,7 +482,8 @@ constexpr inline auto CaptureBufferCode = 314;
 inline auto const& functions() noexcept
 {
     static auto const funcs = []() constexpr
-    { // {{{
+    {
+        // clang-format off
         auto f = std::array {
             // C0
             EOT,
@@ -581,6 +591,12 @@ inline auto const& functions() noexcept
             XTVERSION,
 
             // DCS
+#if defined(GOOD_IMAGE_PROTOCOL)
+            GIUPLOAD,
+            GIRENDER,
+            GIDELETE,
+            GIONESHOT,
+#endif
             STP,
             DECRQSS,
             DECSIXEL,
@@ -614,12 +630,13 @@ inline auto const& functions() noexcept
             NOTIFY,
             DUMPSTATE,
         };
+        // clang-format off
         crispy::sort(
             f,
             [](FunctionDefinition const& a, FunctionDefinition const& b) constexpr { return compare(a, b); });
         return f;
     }
-    (); // }}}
+    ();
 
 #if 0
     for (auto [a, b] : crispy::indexed(funcs))
